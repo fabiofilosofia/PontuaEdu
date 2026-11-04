@@ -181,6 +181,9 @@ def registrar(dados: RegistroEntrada, conn: sqlite3.Connection = Depends(get_db)
 
     responsavel = dados.nome_responsavel.strip() or aluno["responsavel"] or ""
     telefone = dados.telefone_responsavel.strip() or aluno["telefone"] or ""
+    if (responsavel, telefone) != (aluno["responsavel"] or "", aluno["telefone"] or ""):
+        # Guarda o contato digitado para os próximos registros desse aluno
+        conn.execute("UPDATE alunos SET responsavel = ?, telefone = ? WHERE id = ?", (responsavel, telefone, aluno["id"]))
     data_hora = agora()
     data_hora_exibicao = datetime.now().strftime("%d/%m/%Y às %H:%M")
 

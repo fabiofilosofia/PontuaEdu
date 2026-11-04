@@ -26,7 +26,7 @@ pip install -r requirements.txt
 copy .env.example .env
 ```
 
-**Planilha de alunos:** coloque a planilha em `backend/dados/alunos.xlsx`. A primeira linha deve ter os títulos das colunas: **Aluno**, **Turma**, **Responsável**, **Telefone** (Matrícula é opcional; variações como "Nome", "Série", "WhatsApp" também são aceitas). Para testar sem a planilha real: `python gerar_planilha_exemplo.py`.
+**Planilha de alunos:** coloque a planilha em `backend/dados/alunos.xlsx` ou aponte `EXCEL_ALUNOS` no `.env` para o arquivo (ex.: `C:/Users/.../Controle Atrasos.xlsx`). A planilha precisa de uma linha de títulos com **Aluno** e **Turma**; **Responsável**, **Telefone (WhatsApp)**, **Situação/SIT** e **Matrícula** são opcionais. Só alunos com situação "Ativo" (ou vazia) entram no app. O servidor procura a aba certa sozinho. Para testar sem a planilha real: `python gerar_planilha_exemplo.py`.
 
 Sempre que a planilha for salva, o servidor recarrega os alunos sozinho.
 
@@ -67,27 +67,43 @@ Abra no celular com o Expo Go (mesmo Wi-Fi do servidor) ou pressione `w` para ab
 
 ## 3. WhatsApp (envio automático)
 
-O envio usa a **WhatsApp Cloud API** oficial da Meta. Enquanto não estiver configurado, o app registra os atrasos normalmente e mostra "Sem envio".
+Enquanto não estiver configurado, o app registra os atrasos normalmente e mostra "Sem envio". As credenciais ficam só no `backend/.env` (que não vai para o GitHub).
 
-1. Crie uma conta no [Meta for Developers](https://developers.facebook.com/), crie um app do tipo **Business** e adicione o produto **WhatsApp**.
-2. Cadastre e verifique o número de telefone da escola (precisa ser um número que **não** esteja em uso no WhatsApp comum).
-3. Em **Gerenciador do WhatsApp > Modelos de mensagem**, crie um modelo chamado `aviso_atraso`, categoria **Utilidade**, idioma **Português (BR)**, com 3 variáveis. Exemplo de texto:
+### Pela Twilio (padrão)
 
-   > Olá! Informamos que o(a) aluno(a) {{1}}, da turma {{2}}, chegou atrasado(a) à escola em {{3}}. Em caso de dúvidas, procure a coordenação.
+**Testes de campo — Sandbox (gratuito, sem aprovação):**
 
-4. Aguarde a aprovação do modelo (costuma levar de minutos a 1 dia).
-5. Crie um **token de acesso permanente** (Usuário do sistema no Gerenciador de Negócios, com permissão `whatsapp_business_messaging`).
-6. Preencha no `backend/.env`:
+1. No [Console da Twilio](https://console.twilio.com/), copie o **Account SID** e o **Auth Token** (em *Account Info*).
+2. Vá em **Messaging > Try it out > Send a WhatsApp message**. Ali aparece o número do Sandbox (**+1 415 523 8886**) e um código do tipo `join palavra-palavra`.
+3. **Cada responsável que vai participar do teste** precisa mandar essa mensagem `join palavra-palavra` para +1 415 523 8886 pelo WhatsApp dele. Só esses números recebem os avisos. A adesão vale por 72 h; depois é só mandar o `join` de novo.
+4. No `backend/.env`:
 
    ```
-   WHATSAPP_TOKEN=<token permanente>
-   WHATSAPP_PHONE_NUMBER_ID=<ID do número, em "Configuração da API">
-   WHATSAPP_TEMPLATE=aviso_atraso
+   WHATSAPP_PROVEDOR=twilio
+   TWILIO_ACCOUNT_SID=ACxxxxxxxx
+   TWILIO_AUTH_TOKEN=xxxxxxxx
+   TWILIO_WHATSAPP_FROM=whatsapp:+14155238886
    ```
 
-7. Reinicie o servidor.
+5. Teste e reinicie o servidor:
 
-A Meta cobra por conversa iniciada pela empresa (modelos de "Utilidade" têm custo baixo; confira a tabela de preços atual para o Brasil). Os telefones podem estar na planilha com ou sem DDI/máscara — o servidor acrescenta o `55` quando falta.
+   ```bash
+   .venv\Scripts\python testar_whatsapp.py 11987654321
+   ```
+
+   O script mostra se a mensagem foi entregue ou o código de erro (ex.: 63015 = o número não fez o `join`).
+
+**Uso definitivo (número próprio da escola):** registre um remetente de WhatsApp na Twilio (*Messaging > Senders > WhatsApp senders*, exige um perfil do Facebook Business), crie um modelo no **Content Template Builder** com as variáveis `{{1}}` aluno, `{{2}}` turma e `{{3}}` data/hora, envie para aprovação e preencha `TWILIO_WHATSAPP_FROM` com o número da escola e `TWILIO_CONTENT_SID` com o SID do modelo (`HX...`). Texto sugerido:
+
+> Olá! Informamos que o(a) aluno(a) {{1}}, da turma {{2}}, chegou atrasado(a) à escola em {{3}}. Em caso de dúvidas, procure a coordenação.
+
+A Twilio cobra por mensagem (mais a tarifa da Meta); confira os preços atuais.
+
+### Pela Meta (alternativa)
+
+Com `WHATSAPP_PROVEDOR=meta`, o envio usa a WhatsApp Cloud API direto: crie um app em [developers.facebook.com](https://developers.facebook.com/) com o produto WhatsApp, aprove um modelo `aviso_atraso` com as mesmas 3 variáveis e preencha `WHATSAPP_TOKEN` e `WHATSAPP_PHONE_NUMBER_ID`.
+
+Os telefones podem estar na planilha com ou sem DDI/máscara — o servidor acrescenta o `55` quando falta. Se a planilha não tiver o telefone, o funcionário pode digitá-lo no app; ele fica salvo para os próximos registros.
 
 ## Alertas
 

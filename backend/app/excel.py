@@ -1,5 +1,6 @@
 """Leitura da planilha de alunos e geração do relatório de atrasos."""
 import io
+import re
 import sqlite3
 import unicodedata
 from pathlib import Path
@@ -7,14 +8,19 @@ from pathlib import Path
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, PatternFill
 
-# Nomes de coluna aceitos na planilha (sem acento, minúsculos)
+# Nomes de coluna aceitos na planilha (sem acento, minúsculos).
+# Texto entre parênteses também vale: "Telefone (WhatsApp)" é reconhecido.
 COLUNAS = {
     "nome": {"aluno", "nome", "nome do aluno", "estudante"},
     "turma": {"turma", "serie", "classe", "sala"},
     "responsavel": {"responsavel", "nome do responsavel", "responsavel legal"},
     "telefone": {"telefone", "whatsapp", "celular", "telefone do responsavel", "contato"},
     "matricula": {"matricula", "ra", "codigo"},
+    "situacao": {"sit", "situacao", "status", "situacao do aluno"},
 }
+
+# Valores da coluna de situação que contam como aluno ativo (vazio também conta)
+SITUACOES_ATIVAS = {"", "ativo", "ativa", "matriculado", "matriculada", "regular", "cursando"}
 
 STATUS_WHATSAPP = {"enviado": "Enviado", "falhou": "Falhou", "nao_configurado": "Sem envio"}
 
@@ -26,6 +32,12 @@ def _normalizar(texto: object) -> str:
     return " ".join(texto.lower().split())
 
 
+def _variantes(cabecalho: str) -> set[str]:
+    """'telefone (whatsapp)' -> {'telefone (whatsapp)', 'telefone', 'whatsapp'}"""
+    sem_parenteses = re.sub(r"\(.*?\)", "", cabecalho).strip()
+    return {cabecalho, sem_parenteses, *re.findall(r"\((.*?)\)", cabecalho)}
+
+
 def _texto(valor: object) -> str:
     if valor is None:
         return ""
@@ -34,30 +46,46 @@ def _texto(valor: object) -> str:
     return str(valor).strip()
 
 
-def ler_planilha(caminho: Path) -> list[dict[str, str]]:
-    planilha = load_workbook(caminho, read_only=True, data_only=True).worksheets[0]
-    linhas = planilha.iter_rows(values_only=True)
-    cabecalho = [_normalizar(c) for c in next(linhas, [])]
-
+def _mapear_colunas(linha: tuple) -> dict[str, int]:
+    cabecalho = [_variantes(_normalizar(c)) for c in linha]
     indices: dict[str, int] = {}
     for campo, nomes in COLUNAS.items():
-        for i, coluna in enumerate(cabecalho):
-            if coluna in nomes:
+        for i, variantes in enumerate(cabecalho):
+            if i not in indices.values() and variantes & nomes:
                 indices[campo] = i
                 break
-    if "nome" not in indices or "turma" not in indices:
-        raise ValueError("A planilha precisa ter as colunas 'Aluno' e 'Turma' na primeira linha.")
+    return indices
 
-    alunos = []
-    for linha in linhas:
-        aluno = {campo: _texto(linha[i]) if i < len(linha) else "" for campo, i in indices.items()}
-        if aluno["nome"] and aluno["turma"]:
-            alunos.append(aluno)
-    return alunos
+
+def ler_planilha(caminho: Path) -> list[dict[str, str]]:
+    """Procura, em todas as abas, a linha de títulos com 'Aluno' e 'Turma' e lê os alunos ativos."""
+    for planilha in load_workbook(caminho, read_only=True, data_only=True).worksheets:
+        linhas = planilha.iter_rows(values_only=True)
+        for _, linha in zip(range(10), linhas):
+            indices = _mapear_colunas(linha)
+            if "nome" in indices and "turma" in indices:
+                break
+        else:
+            continue
+
+        alunos = []
+        for linha in linhas:
+            aluno = {campo: _texto(linha[i]) if i < len(linha) else "" for campo, i in indices.items()}
+            if not (aluno["nome"] and aluno["turma"]):
+                continue
+            if _normalizar(aluno.pop("situacao", "")) in SITUACOES_ATIVAS:
+                alunos.append(aluno)
+        return alunos
+
+    raise ValueError("Nenhuma aba da planilha tem as colunas 'Aluno' e 'Turma'.")
 
 
 def sincronizar_alunos(conn: sqlite3.Connection, caminho: Path) -> int:
-    """Copia a planilha para o banco quando o arquivo muda. Retorna quantos alunos há."""
+    """Copia a planilha para o banco quando o arquivo muda. Retorna quantos alunos há.
+
+    Responsável e telefone vazios na planilha não apagam os que já foram
+    informados pelo app no momento do registro.
+    """
     global _ultima_sincronizacao
     if not caminho.exists():
         raise FileNotFoundError(f"Planilha de alunos não encontrada: {caminho}")
@@ -73,8 +101,8 @@ def sincronizar_alunos(conn: sqlite3.Connection, caminho: Path) -> int:
                 VALUES (:matricula, :nome, :turma, :responsavel, :telefone, 1)
                 ON CONFLICT (nome, turma) DO UPDATE SET
                     matricula = excluded.matricula,
-                    responsavel = excluded.responsavel,
-                    telefone = excluded.telefone,
+                    responsavel = COALESCE(NULLIF(excluded.responsavel, ''), alunos.responsavel),
+                    telefone = COALESCE(NULLIF(excluded.telefone, ''), alunos.telefone),
                     ativo = 1
                 """,
                 {"matricula": "", "responsavel": "", "telefone": "", **a},

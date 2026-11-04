@@ -18,6 +18,7 @@ def cliente(tmp_path, monkeypatch):
     monkeypatch.setattr(config_mod.config, "db_path", tmp_path / "teste.db")
     monkeypatch.setattr(config_mod.config, "excel_alunos", planilha)
     monkeypatch.setattr(config_mod.config, "whatsapp_token", "")
+    monkeypatch.setattr(config_mod.config, "twilio_account_sid", "")
     monkeypatch.setattr(config_mod.config, "alerta_limite", 2)
 
     from app import excel, main
@@ -101,6 +102,7 @@ def test_whatsapp_monta_template(monkeypatch):
     from app import whatsapp
     from app.config import config
 
+    monkeypatch.setattr(config, "whatsapp_provedor", "meta")
     monkeypatch.setattr(config, "whatsapp_token", "tok")
     monkeypatch.setattr(config, "whatsapp_phone_number_id", "123")
     enviado = {}
@@ -123,3 +125,92 @@ def test_whatsapp_monta_template(monkeypatch):
     assert [p["text"] for p in params] == ["Ana", "6º A", "03/11/2026 às 07:40"]
 
     assert whatsapp.enviar_aviso_atraso("123", "Ana", "6º A", "x").status == "falhou"
+
+
+def test_planilha_no_formato_da_escola(tmp_path):
+    from app.excel import ler_planilha
+
+    caminho = tmp_path / "escola.xlsx"
+    wb = Workbook()
+    wb.active.title = "Resumo"
+    wb.active.append(["Rótulos de Linha", "Contagem de ALUNO"])  # aba sem alunos
+    ws = wb.create_sheet("Alunos Tutoria")
+    ws.append(["Controle de atrasos 2026"])  # título antes do cabeçalho
+    ws.append(["ALUNO", "SIT", "TURMA", "RESPONSÁVEL", "TELEFONE (WHATSAPP)"])
+    ws.append(["ALICE VIEIRA", "Ativo", "1A", None, None])
+    ws.append(["BRUNO COSTA", "Transferido", "1A", None, None])
+    ws.append(["CAIO LIMA", "Ativo", "2B", "Rita", 11912345678])
+    wb.save(caminho)
+
+    alunos = ler_planilha(caminho)
+    assert [a["nome"] for a in alunos] == ["ALICE VIEIRA", "CAIO LIMA"]
+    assert alunos[1]["telefone"] == "11912345678"
+    assert alunos[1]["responsavel"] == "Rita"
+
+
+def test_contato_digitado_fica_salvo(cliente):
+    from app import excel
+    from app.config import config
+
+    h = entrar(cliente)
+    bruno = cliente.get("/alunos", headers=h).json()[1]
+    cliente.post("/registrar", headers=h, json={
+        "aluno_id": bruno["id"], "nome_responsavel": "Novo Resp", "telefone_responsavel": "11900001111"})
+    bruno = cliente.get("/alunos", headers=h).json()[1]
+    assert (bruno["responsavel"], bruno["telefone"]) == ("Novo Resp", "11900001111")
+
+    # Reler a planilha (com telefone vazio) não apaga o contato informado no app
+    wb = Workbook()
+    wb.active.append(["Aluno", "Turma", "Responsável", "Telefone"])
+    wb.active.append(["Bruno Lima", "7º B", None, None])
+    wb.save(config.excel_alunos)
+    excel._ultima_sincronizacao = None
+    bruno = cliente.get("/alunos", headers=h).json()[0]
+    assert bruno["telefone"] == "11900001111"
+
+
+def test_whatsapp_twilio(monkeypatch):
+    import json as json_mod
+    from app import whatsapp
+    from app.config import config
+
+    monkeypatch.setattr(config, "whatsapp_provedor", "twilio")
+    monkeypatch.setattr(config, "twilio_account_sid", "AC123")
+    monkeypatch.setattr(config, "twilio_auth_token", "segredo")
+    monkeypatch.setattr(config, "twilio_whatsapp_from", "+14155238886")
+    monkeypatch.setattr(config, "twilio_content_sid", "")
+    enviado = {}
+
+    class Resposta:
+        is_success = True
+        def json(self):
+            return {"sid": "SM1"}
+
+    def falso_post(url, data, auth, timeout):
+        enviado.update(url=url, data=data, auth=auth)
+        return Resposta()
+
+    monkeypatch.setattr(whatsapp.httpx, "post", falso_post)
+    r = whatsapp.enviar_aviso_atraso("11 98765-4321", "ALICE", "1A", "04/11/2026 às 07:40")
+    assert r.status == "enviado" and r.detalhe == "SM1"
+    assert enviado["url"].endswith("/Accounts/AC123/Messages.json")
+    assert enviado["auth"] == ("AC123", "segredo")
+    assert enviado["data"]["From"] == "whatsapp:+14155238886"
+    assert enviado["data"]["To"] == "whatsapp:+5511987654321"
+    assert "ALICE" in enviado["data"]["Body"] and "1A" in enviado["data"]["Body"]
+
+    # Com modelo aprovado (Content SID), manda as 3 variáveis em vez do texto livre
+    monkeypatch.setattr(config, "twilio_content_sid", "HX9")
+    whatsapp.enviar_aviso_atraso("11987654321", "ALICE", "1A", "x")
+    assert enviado["data"]["ContentSid"] == "HX9" and "Body" not in enviado["data"]
+    assert json_mod.loads(enviado["data"]["ContentVariables"]) == {"1": "ALICE", "2": "1A", "3": "x"}
+
+    class Erro:
+        is_success = False
+        status_code = 400
+        def json(self):
+            return {"code": 63007, "message": "Twilio could not find a Channel with the specified From address"}
+
+    monkeypatch.setattr(whatsapp.httpx, "post", lambda *a, **k: Erro())
+    r = whatsapp.enviar_aviso_atraso("11987654321", "ALICE", "1A", "x")
+    assert r.status == "falhou" and "63007" in r.detalhe

@@ -25,7 +25,16 @@ class Config:
 
         self.sessao_dias = int(os.getenv("SESSAO_DIAS", "30"))
 
-        # WhatsApp Cloud API (Meta). Sem token, as mensagens não são enviadas.
+        # Quem envia o WhatsApp: "twilio" ou "meta". Sem credenciais, nada é enviado.
+        self.whatsapp_provedor = os.getenv("WHATSAPP_PROVEDOR", "twilio").strip().lower()
+
+        # Twilio
+        self.twilio_account_sid = os.getenv("TWILIO_ACCOUNT_SID", "")
+        self.twilio_auth_token = os.getenv("TWILIO_AUTH_TOKEN", "")
+        self.twilio_whatsapp_from = os.getenv("TWILIO_WHATSAPP_FROM", "whatsapp:+14155238886")
+        self.twilio_content_sid = os.getenv("TWILIO_CONTENT_SID", "")
+
+        # WhatsApp Cloud API (Meta)
         self.whatsapp_token = os.getenv("WHATSAPP_TOKEN", "")
         self.whatsapp_phone_number_id = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "")
         self.whatsapp_template = os.getenv("WHATSAPP_TEMPLATE", "aviso_atraso")
@@ -34,7 +43,9 @@ class Config:
 
     @property
     def whatsapp_configurado(self) -> bool:
-        return bool(self.whatsapp_token and self.whatsapp_phone_number_id)
+        if self.whatsapp_provedor == "meta":
+            return bool(self.whatsapp_token and self.whatsapp_phone_number_id)
+        return bool(self.twilio_account_sid and self.twilio_auth_token)
 
 
 config = Config()
