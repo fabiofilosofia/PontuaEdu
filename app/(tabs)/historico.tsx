@@ -3,6 +3,7 @@ import { useCallback, useState } from 'react';
 import { ActivityIndicator, Alert, FlatList, Linking, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 import { Cabecalho } from '@/components/cabecalho';
+import { Rodape } from '@/components/rodape';
 import { Filtros, formatarDataHora, intervalo, type Periodo } from '@/components/filtros';
 import { cores } from '@/constants/estilo';
 import { montarUrl, type Atraso, type StatusWhatsapp } from '@/lib/api';
@@ -89,6 +90,7 @@ export default function Historico() {
         contentContainerStyle={styles.lista}
         refreshControl={<RefreshControl refreshing={carregando} onRefresh={carregar} />}
         ListEmptyComponent={!carregando ? <Text style={styles.vazio}>Nenhum atraso neste período. 🎉</Text> : null}
+        ListFooterComponent={<Rodape />}
         renderItem={({ item }) => {
           const selo = SELO[item.whatsapp_status];
           return (

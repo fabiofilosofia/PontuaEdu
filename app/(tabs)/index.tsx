@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 
 import { Cabecalho } from '@/components/cabecalho';
+import { Rodape } from '@/components/rodape';
 import { cores } from '@/constants/estilo';
 import type { Aluno, ResultadoRegistro } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
@@ -193,6 +194,7 @@ export default function Registrar() {
             {enviando ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.textoBotao}>📲 Registrar e notificar</Text>}
           </TouchableOpacity>
         </View>
+        <Rodape />
       </ScrollView>
     </View>
   );

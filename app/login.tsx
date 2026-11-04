@@ -10,6 +10,8 @@ import {
   View,
 } from 'react-native';
 
+import { Rodape } from '@/components/rodape';
+import { NOME_ESCOLA } from '@/constants/escola';
 import { cores } from '@/constants/estilo';
 import { useAuth } from '@/lib/auth';
 
@@ -42,6 +44,7 @@ export default function Login() {
         <Text style={styles.emoji}>🏫</Text>
         <Text style={styles.titulo}>PontuaEdu</Text>
         <Text style={styles.subtitulo}>Controle de atrasos</Text>
+        <Text style={styles.escola}>{NOME_ESCOLA}</Text>
       </View>
 
       <View style={styles.card}>
@@ -70,6 +73,7 @@ export default function Login() {
           {enviando ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.textoBotao}>Entrar</Text>}
         </TouchableOpacity>
       </View>
+      <Rodape claro />
     </KeyboardAvoidingView>
   );
 }
@@ -80,6 +84,7 @@ const styles = StyleSheet.create({
   emoji: { fontSize: 44 },
   titulo: { fontSize: 28, fontWeight: '800', color: '#FFFFFF', marginTop: 4 },
   subtitulo: { fontSize: 14, color: cores.placeholder },
+  escola: { fontSize: 13, color: cores.primariaClara, fontWeight: '600', marginTop: 8, textAlign: 'center' },
   card: { backgroundColor: cores.cartao, borderRadius: 16, padding: 20, width: '100%', maxWidth: 420, alignSelf: 'center' },
   label: { fontSize: 12, fontWeight: '600', color: cores.rotulo, marginBottom: 6, textTransform: 'uppercase' },
   input: {
