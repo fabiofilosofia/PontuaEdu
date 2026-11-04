@@ -1,50 +1,101 @@
-# Welcome to your Expo app 👋
+# PontuaEdu — Controle de atrasos escolares
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+App para a portaria/coordenação registrar a chegada atrasada de alunos e avisar o responsável pelo WhatsApp automaticamente.
 
-## Get started
+- **Registrar**: busca o aluno pelo nome (lista vinda da planilha Excel da escola), confirma responsável/telefone e registra. O responsável recebe a mensagem no WhatsApp.
+- **Histórico**: atrasos de hoje, 7 dias, 30 dias ou do ano, por turma. Toque num envio que falhou para reenviar. Botão para baixar relatório em Excel.
+- **Por aluno**: quantos atrasos cada aluno teve no período; quem passou do limite aparece destacado.
+- **Login**: só funcionários cadastrados usam o app.
 
-1. Install dependencies
-
-   ```bash
-   npm install
-   ```
-
-2. Start the app
-
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
-
-```bash
-npm run reset-project
+```
+app/            telas do app (Expo / React Native)
+lib/            comunicação com o servidor e login
+backend/        servidor (Python + FastAPI + SQLite)
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+---
 
-## Learn more
+## 1. Servidor (no computador da escola)
 
-To learn more about developing your project with Expo, look at the following resources:
+Precisa do [Python 3.11+](https://www.python.org/downloads/). No terminal, dentro da pasta `backend`:
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+```bash
+py -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+copy .env.example .env
+```
 
-## Join the community
+**Planilha de alunos:** coloque a planilha em `backend/dados/alunos.xlsx`. A primeira linha deve ter os títulos das colunas: **Aluno**, **Turma**, **Responsável**, **Telefone** (Matrícula é opcional; variações como "Nome", "Série", "WhatsApp" também são aceitas). Para testar sem a planilha real: `python gerar_planilha_exemplo.py`.
 
-Join our community of developers creating universal apps.
+Sempre que a planilha for salva, o servidor recarrega os alunos sozinho.
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+**Primeiro usuário (administrador):**
+
+```bash
+python criar_usuario.py --admin
+```
+
+Funcionários comuns: `python criar_usuario.py`. Administradores também podem criar usuários pela API (`POST /usuarios`) e excluir registros feitos por engano.
+
+**Ligar o servidor:**
+
+```bash
+uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
+Descubra o IP do computador com `ipconfig` (ex.: `192.168.0.12`). Se o Windows perguntar, permita o acesso na rede privada.
+
+> Os dados reais (planilha e banco `dados/pontuaedu.db`) ficam só no computador da escola — a pasta `dados/` não vai para o GitHub. Faça backup do arquivo `.db` periodicamente.
+
+## 2. App
+
+Na pasta raiz do projeto:
+
+```bash
+npm install
+copy .env.example .env.local
+```
+
+Edite `.env.local` com o IP do servidor: `EXPO_PUBLIC_API_URL=http://192.168.0.12:8000`
+
+```bash
+npx expo start
+```
+
+Abra no celular com o Expo Go (mesmo Wi-Fi do servidor) ou pressione `w` para abrir no navegador.
+
+## 3. WhatsApp (envio automático)
+
+O envio usa a **WhatsApp Cloud API** oficial da Meta. Enquanto não estiver configurado, o app registra os atrasos normalmente e mostra "Sem envio".
+
+1. Crie uma conta no [Meta for Developers](https://developers.facebook.com/), crie um app do tipo **Business** e adicione o produto **WhatsApp**.
+2. Cadastre e verifique o número de telefone da escola (precisa ser um número que **não** esteja em uso no WhatsApp comum).
+3. Em **Gerenciador do WhatsApp > Modelos de mensagem**, crie um modelo chamado `aviso_atraso`, categoria **Utilidade**, idioma **Português (BR)**, com 3 variáveis. Exemplo de texto:
+
+   > Olá! Informamos que o(a) aluno(a) {{1}}, da turma {{2}}, chegou atrasado(a) à escola em {{3}}. Em caso de dúvidas, procure a coordenação.
+
+4. Aguarde a aprovação do modelo (costuma levar de minutos a 1 dia).
+5. Crie um **token de acesso permanente** (Usuário do sistema no Gerenciador de Negócios, com permissão `whatsapp_business_messaging`).
+6. Preencha no `backend/.env`:
+
+   ```
+   WHATSAPP_TOKEN=<token permanente>
+   WHATSAPP_PHONE_NUMBER_ID=<ID do número, em "Configuração da API">
+   WHATSAPP_TEMPLATE=aviso_atraso
+   ```
+
+7. Reinicie o servidor.
+
+A Meta cobra por conversa iniciada pela empresa (modelos de "Utilidade" têm custo baixo; confira a tabela de preços atual para o Brasil). Os telefones podem estar na planilha com ou sem DDI/máscara — o servidor acrescenta o `55` quando falta.
+
+## Alertas
+
+No `backend/.env`: `ALERTA_LIMITE=3` e `ALERTA_JANELA_DIAS=30` → o app avisa quando um aluno chega ao 3º atraso em 30 dias.
+
+## Desenvolvimento
+
+```bash
+cd backend && .venv\Scripts\python -m pytest     # testes do servidor
+npx tsc --noEmit && npx expo lint                 # checagem do app
+```

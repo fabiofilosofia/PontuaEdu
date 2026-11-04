@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.env
+
+# Dados reais de alunos e o banco nunca vão para o GitHub
+dados/
